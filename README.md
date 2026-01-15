@@ -32,6 +32,9 @@ python run_demo.py
 # Run basic smoke test
 python -m pytest
 ```
+Note:
+Demo scripts prioritize showcasing agent control flow and state transitions.
+Some third-party library telemetry warnings may appear during execution and do not affect correctness.
 
 ---
 
