@@ -1,12 +1,11 @@
 # AgentMesh
-Multi-agent system for automated data pipeline debugging using LangGraph.
+Multi-agent system for automated data pipeline failure diagnosis and remediation using LangGraph.
 
 ## Overview
 AgentMesh detects pipeline failures, investigates root causes, proposes fixes, and validates them before escalating to humans.  
 Built with LangGraph to keep agent behavior explicit and debuggable.
 
 ## Architecture
-
 **Agent Flow:**
 1. **Monitor** → Detects failures and symptoms  
 2. **Investigator** → Diagnoses root cause using logs + RAG  
@@ -32,11 +31,12 @@ python run_demo.py
 
 # Run basic smoke test
 python -m pytest
+```
 
 ---
 
 ## Project Structure
-```
+```text
 agentmesh/
 ├── src/
 │   ├── agents/        # Individual agent logic
@@ -73,6 +73,8 @@ agentmesh/
 - No actual sandbox execution (validation is simulated)
 - Single-pipeline focus (no concurrent processing)
 
+---
+
 ## What Would Break at Scale
 **Bottleneck:** Investigator agent (I/O bound: logs + vector search)
 **What breaks first:** Cost (LLM calls per pipeline check)
@@ -95,6 +97,8 @@ This project optimizes for clarity and safety over full automation.
 - LangChain 0.3.15 - LLM integration
 - ChromaDB 0.5.23 - Vector storage
 - FastAPI 0.115.6 - API wrapper (future)
+
+---
 
 ## License
 MIT
