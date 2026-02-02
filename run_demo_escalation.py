@@ -8,16 +8,14 @@ if __name__ == "__main__":
 
     initial_state = AgentState(
         pipeline_id="demo_escalation_pipeline",
-        pipeline_config={
-            "source": "legacy_system",
-            "destination": "postgres",
-            "data_quality": "unknown",
-        },
+        pipeline_config={...},
         retry_counts={},
         started_at=datetime.now(),
         total_llm_calls=0,
         total_cost_usd=0.0,
+        force_escalation=True,   # ← explicit
     )
+
 
     final_state = graph.invoke(initial_state)
 
