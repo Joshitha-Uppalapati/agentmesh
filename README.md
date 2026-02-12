@@ -72,6 +72,7 @@ agentmesh/
 - Local development (no external dependencies)
 - Vector search for similar past failures
 - Lightweight and sufficient for an MVP
+- Similarity scores influence diagnostic confidence, which in turn affects escalation vs remediation decisions
 
 ## Limitations
 - Mock LLM responses when no API key (for development)
@@ -105,7 +106,6 @@ This project optimizes for clarity and safety over full automation.
 - LangGraph 0.2.45 - Agent orchestration
 - LangChain 0.3.15 - LLM integration
 - ChromaDB 0.5.23 - Vector storage
-- FastAPI 0.115.6 - Planned API interface (not implemented)
 
 ---
 
