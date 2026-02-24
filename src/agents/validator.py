@@ -29,19 +29,22 @@ def validator_agent(state: AgentState) -> AgentState:
         proposed_fix=proposed_fix,
         fix_type=state.get("fix_type", "unknown"),
     )
-
+    
     response = agent.call_llm(prompt, state)
+
+    resp_str = str(response).lower() if response else ""
+    parsed_result = "approved" if "approved" in resp_str else "needs_review"
 
     test_results = {
         "syntax_check": "pass",
-        "sandbox_test": "pass",
+        "sandbox_test": "pass" if parsed_result == "approved" else "fail",
         "edge_cases": "pass",
     }
 
     state["test_results"] = test_results
-    state["validation_result"] = "approved"
-    state["validation_reasoning"] = "All checks passed; fix is safe to apply"
-    state["final_status"] = "resolved"
+    state["validation_result"] = parsed_result
+    state["validation_reasoning"] = str(response) if response else "Safety fallback: implicit approval missing"
+    state["final_status"] = "resolved" if parsed_result == "approved" else "escalated"
     state["current_agent"] = "validator"
 
     agent.log_action(f"Validation result: {state['validation_result']}", state)

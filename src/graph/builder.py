@@ -5,19 +5,26 @@ from src.agents.monitor import monitor_agent
 from src.agents.investigator import investigator_agent
 from src.agents.fixer import fixer_agent
 from src.agents.validator import validator_agent
+from src.tools.escalation import persist_escalation
 
 
 def escalate_to_human(state: AgentState) -> AgentState:
     print("\n🚨 ESCALATED TO HUMAN REVIEW")
     print(f"Reason: {state.get('validation_reasoning', 'Max retries exceeded')}")
     state["final_status"] = "escalated"
+
+    try:
+        persist_escalation(state)
+    except Exception as e:
+        print(f"⚠️ Failed to persist escalation log: {e}")
+
     return state
 
 
 def build_graph():
     graph = StateGraph(AgentState)
     
-    # Add nodes
+    
     graph.add_node("monitor", monitor_agent)
     graph.add_node("investigator", investigator_agent)
     graph.add_node("fixer", fixer_agent)

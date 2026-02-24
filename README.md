@@ -1,31 +1,52 @@
 # AgentMesh
-Multi-agent system for automated data pipeline failure diagnosis and remediation using LangGraph.
+Most multi-agent systems look fine in demos but become unpredictable in production.
 
 ## Overview
-AgentMesh detects pipeline failures, investigates root causes, proposes fixes, and validates them before escalating to humans.
-Built with LangGraph to keep agent behavior explicit, inspectable, and safe to reason about.
+AgentMesh is a multi-agent system for diagnosing and fixing data pipeline failures. 
+Most agent systems look fine in demos but become unpredictable in real workflows. 
+This project focuses on making agent behavior explicit, inspectable, and safe.
 
 ---
 
 ## Architecture
 **Agent Flow:** 
-The Investigator agent uses a real LLM when API keys are available; Fixer and Validator are intentionally deterministic to keep control flow predictable during demos.
+The Investigator agent uses a real LLM when API keys are available.
+Fixer and Validator are intentionally deterministic to keep control flow predictable during demos.
 1. **Monitor** → Detects failures and symptoms  
 2. **Investigator** → Diagnoses root cause using logs + RAG  
 3. **Fixer** → Proposes code/config/schema fixes  
-4. **Validator** → Tests fixes in sandbox before approval  
+4. **Validator** → Tests fixes in sandbox before approval
 
 **Control Flow:**
 - Retry limits prevent infinite loops  
 - Escalation paths for human review  
-- State tracking for observability  
+- State tracking for observability
+
+## Example: Graceful Escalation (run_demo_escalation.py)
+
+When the system hits a failure it is not confident enough to fix, or hits retry limits, it halts and logs state for a human:
+
+```text
+[Validator] Validating fix
+[Validator] Max validation retries reached, escalating
+
+🚨 ESCALATED TO HUMAN REVIEW
+Reason: Max retries exceeded | Confidence score too low for auto-remediation
+
+📊 Metrics:
+   Final Status: escalated
+   LLM Calls: 4
+   Cost: $0.0012
+```
+
+---
 
 ## Quick Start
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Add API key (optional)
+# Add API key
 cp .env.example .env
 # Edit .env with your Anthropic/OpenAI key
 
@@ -35,6 +56,7 @@ python run_demo.py
 # Run basic smoke test
 python -m pytest
 ```
+
 **Note:**
 Demo scripts prioritize agent control flow and state transitions over full automation.
 Some third-party library telemetry warnings may appear during execution and do not affect behavior or results.
@@ -89,8 +111,8 @@ agentmesh/
 **Would measure:** Time-to-fix, false positive rate, fix acceptance rate
 
 ## Trade-offs
-**Used Chroma because:** Fast local setup, good enough for thousands of failures
-**Wouldn't use Chroma if:** multi-tenancy is required, ACID guarantees are needed, or a managed vector DB already exists
+- **Used Chroma because:** Fast local setup, good enough for thousands of failures
+- **Wouldn't use Chroma if:** Multi-tenancy is required, ACID guarantees are needed, or a managed vector DB already exists
 This project optimizes for clarity and safety over full automation.
 
 ---
