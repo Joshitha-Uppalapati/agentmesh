@@ -34,7 +34,6 @@ class BaseAgent:
             )
 
         # No more silent demo fallback.
-        # If someone runs this without a key, it should fail loudly.
         raise RuntimeError("No LLM API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
 
     def call_llm(self, prompt: str, state: Dict[str, Any]) -> Any:
@@ -48,13 +47,16 @@ class BaseAgent:
         state["total_llm_calls"] = state.get("total_llm_calls", 0) + 1
 
         try:
-            # TODO(joshitha): add timeout + retry (tenacity)
-            # Right now one hung request blocks the whole graph.
-            response = self.llm.invoke(prompt)
+            # 30s timeout is aggressive for Sonnet but necessary to prevent graph hangs; need to monitor P99 latency.
+            response = self.llm.invoke(prompt, config={"timeout": 30})
 
         except Exception as e:
-            # This used to fall back to fake responses, which made debugging impossible.
-            logger.warning("llm invocation failed: %s", e)
+            logger.warning(
+                "run_id=%s agent=%s llm_call_failed error=%s",
+                state.get("run_id"),
+                self.name,
+                str(e),
+            )
             raise
 
         # Cost tracking (still useful for demo realism)
@@ -88,8 +90,13 @@ class BaseAgent:
         return state
 
     def log_action(self, action: str, state: Dict[str, Any]):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        pipeline = state.get("pipeline_id", "unknown")
+        timestamp = datetime.utcnow().isoformat()
 
-        # print() makes logs useless once you have concurrent runs
-        logger.info("%s | %s | %s | %s", timestamp, self.name, pipeline, action)
+        logger.info(
+            "run_id=%s agent=%s pipeline=%s ts=%s action=%s",
+            state.get("run_id"),
+            self.name,
+            state.get("pipeline_id"),
+            timestamp,
+            action,
+        )

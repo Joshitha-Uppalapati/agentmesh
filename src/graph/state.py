@@ -7,41 +7,43 @@ class AgentState(TypedDict, total=False):
     pipeline_id: str
     pipeline_config: Dict
 
-    # Demo switches. I left them in state instead of kwargs because LangGraph routing got annoying
-    # once the branching logic started depending on scenario flags.
+    # Traceability - Batch 4 (correlation across agents/logs)
+    run_id: str
+
+    # Demo switches. Keeping this in state avoided messy branching through kwargs.
     force_escalation: bool
 
-    # Monitor owns failure detection. Other nodes should read these, not reinterpret them.
+    # Monitor output
     health_status: Literal["healthy", "degraded", "failed"]
     failure_detected: bool
     failure_timestamp: Optional[datetime]
     failure_symptoms: List[str]
 
-    # Investigator writes diagnosis. The temptation is to let Fixer mutate root_cause too.
-    # Don't. That turned into state whiplash fast during early graph experiments.
+    # Investigator output
     investigation_complete: bool
     root_cause: Optional[str]
     relevant_logs: List[str]
     similar_past_failures: List[Dict]
-    confidence_score: float
 
-    # Fixer output.
+    # confidence is a model hallucination risk, but useful for routing decisions
+    confidence_score: Optional[float]
+
+    # Fixer output
     proposed_fix: Optional[str]
     fix_type: Optional[Literal["code", "config", "schema"]]
-    fix_reasoning: str
-    estimated_impact: str
+    fix_reasoning: Optional[str]
+    estimated_impact: Optional[str]
 
-    # Validator output.
+    # Validator output
     validation_result: Optional[Literal["approved", "rejected", "needs_review"]]
-    validation_reasoning: str
-    test_results: Dict
+    validation_reasoning: Optional[str]
+    test_results: Optional[Dict]
 
-    # Graph bookkeeping.
+    # Graph bookkeeping
     retry_counts: Dict[str, int]
-    current_agent: str
     final_status: Optional[Literal["resolved", "escalated", "failed"]]
 
-    # Run metadata.
+    # Run metadata
     started_at: datetime
     completed_at: Optional[datetime]
     total_llm_calls: int
