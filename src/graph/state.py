@@ -48,3 +48,8 @@ class AgentState(TypedDict, total=False):
     completed_at: Optional[datetime]
     total_llm_calls: int
     total_cost_usd: float
+    
+    # Graph bookkeeping.
+    retry_counts: Dict[str, int]
+    current_agent: str
+    final_status: Optional[Literal["resolved", "escalated", "failed"]]

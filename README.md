@@ -111,7 +111,7 @@ Requires one of:
 ```
 python run_demo.py
 ```
-The system will fail fast if no API key is provided.
+Without an API key, agents fall back to deterministic logic and the system runs in demo mode.
 
 ---
 

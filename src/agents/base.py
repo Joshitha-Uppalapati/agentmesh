@@ -45,11 +45,17 @@ class BaseAgent:
         return None
 
     def extract_token_usage(self, response: Any) -> Tuple[int, int]:
-        # Provider wrappers do not agree on where usage lives. Check both shapes
-        # before assuming a call was "free".
-        usage = getattr(response, "response_metadata", {}).get("usage", {})
-        if not usage:
-            usage = getattr(response, "usage_metadata", {}) or {}
+        input_tokens = 0
+        output_tokens = 0
+
+        # Try response_metadata first
+        metadata = getattr(response, "response_metadata", {}) or {}
+
+        usage = (
+            metadata.get("usage")
+            or metadata.get("token_usage")   # ← THIS is your real case
+            or {}
+        )
 
         input_tokens = (
             usage.get("input_tokens")
@@ -57,12 +63,31 @@ class BaseAgent:
             or usage.get("input_token_count")
             or 0
         )
+
         output_tokens = (
             usage.get("output_tokens")
             or usage.get("completion_tokens")
             or usage.get("output_token_count")
             or 0
         )
+
+        # Fallback: usage_metadata (some wrappers only populate this)
+        if (input_tokens == 0 and output_tokens == 0):
+            usage_meta = getattr(response, "usage_metadata", {}) or {}
+
+            input_tokens = (
+                usage_meta.get("input_tokens")
+                or usage_meta.get("prompt_tokens")
+                or usage_meta.get("input_token_count")
+                or 0
+            )
+
+            output_tokens = (
+                usage_meta.get("output_tokens")
+                or usage_meta.get("completion_tokens")
+                or usage_meta.get("output_token_count")
+                or 0
+            )
 
         return int(input_tokens), int(output_tokens)
 
@@ -79,9 +104,10 @@ class BaseAgent:
         # TODO(joshitha): move pricing into config before this spreads any further.
         if "claude" in model_name:
             cost = (input_tokens / 1_000_000) * 3.00 + (output_tokens / 1_000_000) * 15.00
-        elif "gpt-4" in model_name:
+        elif "gpt" in model_name:
+            # covers gpt-4, gpt-4o, gpt-4o-mini
             cost = (input_tokens / 1_000_000) * 10.00 + (output_tokens / 1_000_000) * 30.00
-
+        
         state["total_cost_usd"] = round(
             state.get("total_cost_usd", 0.0) + cost,
             6,
@@ -94,7 +120,6 @@ class BaseAgent:
         state: Dict[str, Any],
         fallback_fn: Callable[[], T],
     ) -> T:
-        # Keep accounting here so every agent call behaves the same way.
         state["total_llm_calls"] = state.get("total_llm_calls", 0) + 1
 
         if self.llm is None:
@@ -102,21 +127,34 @@ class BaseAgent:
             return fallback_fn()
 
         try:
-            structured_llm = self.llm.with_structured_output(model_cls)
+            structured_llm = self.llm.with_structured_output(
+                model_cls,
+                include_raw=True,  # critical: gives us access to token usage
+            )
 
-            # 30s timeout is aggressive for Sonnet but necessary to prevent graph hangs;
-            # need to monitor P99 latency before loosening it.
-            response = structured_llm.invoke(
+            raw_output = structured_llm.invoke(
                 prompt,
                 config={"timeout": 30},
             )
 
-            self.add_cost_to_state(response, state)
-            return response
+            # raw_output is now:
+            # { "parsed": <PydanticModel>, "raw": AIMessage }
+
+            raw_message = raw_output.get("raw")
+            parsed = raw_output.get("parsed")
+
+            if raw_message is not None:
+                self.add_cost_to_state(raw_message, state)
+            else:
+                # this should not happen, but if it does, make it visible
+                logger.warning(
+                    "run_id=%s agent=%s missing_raw_llm_response_for_cost_tracking",
+                    state.get("run_id"),
+                    self.name,
+                )
+            return parsed
 
         except Exception as error:
-            # Fail soft at the edge. Once parsing or provider behavior gets weird,
-            # a deterministic fallback is safer than pretending we got a clean answer.
             self.log_action(
                 f"Structured invocation failed; using fallback logic. reason={error}",
                 state,

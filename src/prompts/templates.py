@@ -1,4 +1,7 @@
-
+# Prompt templates.
+# These change frequently during evaluation cycles, so keeping them separate
+# avoids mixing behavioral changes with agent or graph logic.
+# Diffing prompts independently makes regressions easier to track.
 
 MONITOR_PROMPT = """You are a Pipeline Monitor Agent.
 
