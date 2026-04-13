@@ -1,12 +1,11 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 
 from src.graph.builder import build_graph
 from src.graph.state import AgentState
-from src.tools.vector_store import VectorStore
 
 load_dotenv()
 
@@ -14,26 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def run_demo():
-    # Generate correlation id FIRST
     run_id = str(uuid.uuid4())
 
     logger.info("run_boundary run_id=%s stage=start", run_id)
     logger.info("agentmesh_run_started run_id=%s", run_id)
 
-    # Seed sample data in vector store
-    logger.info("initializing_vector_store run_id=%s", run_id)
-    vector_store = VectorStore()
-
-    try:
-        vector_store.seed_sample_data()
-    except Exception as e:
-        logger.warning("vector_store_seed_failed run_id=%s error=%s", run_id, str(e))
-
-    # Build graph
     logger.info("building_graph run_id=%s", run_id)
     graph = build_graph()
 
-    # Initial state
     initial_state = AgentState(
         pipeline_id="data_ingestion_prod",
         pipeline_config={
@@ -42,7 +29,7 @@ def run_demo():
             "schedule": "hourly",
         },
         retry_counts={},
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
         total_llm_calls=0,
         total_cost_usd=0.0,
         run_id=run_id,
@@ -54,15 +41,13 @@ def run_demo():
         initial_state["pipeline_id"],
     )
 
-    # Execute graph
     try:
         final_state = graph.invoke(initial_state)
-    except Exception as e:
-        logger.error("run_failed run_id=%s error=%s", run_id, str(e))
+    except Exception as error:
+        logger.error("run_failed run_id=%s error=%s", run_id, str(error))
         raise
 
-    # Ensure completion timestamp exists
-    final_state["completed_at"] = datetime.utcnow()
+    final_state["completed_at"] = datetime.now(UTC)
 
     logger.info("run_boundary run_id=%s stage=results", run_id)
     logger.info("run_completed run_id=%s", run_id)

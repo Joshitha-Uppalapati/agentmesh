@@ -1,6 +1,4 @@
-# Prompt templates move a lot during evals.
-# Keeping them out of the agent modules makes it easier to diff behavior without touching graph code.
-# TODO(joshitha): investigator/fixer should move to structured output prompts once parsing is cleaned up.
+
 
 MONITOR_PROMPT = """You are a Pipeline Monitor Agent.
 

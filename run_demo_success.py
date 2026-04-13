@@ -7,7 +7,7 @@ if __name__ == "__main__":
     graph = build_graph()
 
     initial_state = AgentState(
-        pipeline_id="demo_success_pipeline",
+        pipeline_id="data_ingestion_success",
         pipeline_config={
             "source": "s3",
             "destination": "postgres",

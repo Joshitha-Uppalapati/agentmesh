@@ -3,69 +3,60 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src.agents.base import BaseAgent
-from src.prompts.templates import FIXER_PROMPT
 from src.graph.state import AgentState
+from src.prompts.templates import FIXER_PROMPT
 
 
 class FixProposal(BaseModel):
     proposed_fix: str = Field(
-        description="Concrete remediation step that matches the diagnosed root cause.",
+        description="Concrete remediation step that matches the diagnosed failure mode.",
     )
     fix_type: Literal["code", "config", "schema"] = Field(
         description="Primary category of the proposed change.",
     )
     fix_reasoning: str = Field(
-        description="Why this fix addresses the diagnosed failure mode.",
+        description="Why this fix is a reasonable response to the diagnosed issue.",
     )
     estimated_impact: str = Field(
-        description="What this change touches or risks in the pipeline.",
+        description="What parts of the pipeline this change is likely to touch.",
     )
 
 
-def _fallback_fix(state: AgentState) -> FixProposal:
+def _build_fix_fallback(state: AgentState) -> FixProposal:
     root_cause = (state.get("root_cause") or "").lower()
 
-    # Offline mode still needs to respect the diagnosis. Hardcoding one fix for every failure was the original bug.
+    # Fallback has to respect the diagnosis. One generic fix for every failure
+    # was the original bug and it made the whole graph look smarter than it was.
     if "rate limit" in root_cause or "429" in root_cause:
         return FixProposal(
-            proposed_fix="Add exponential backoff retry logic with jitter and cap retries at 5 attempts.",
+            proposed_fix="Add exponential backoff with jitter, cap retries at 5 attempts, and surface rate-limit metrics in the client.",
             fix_type="code",
-            fix_reasoning="429s are usually transient. Backoff reduces pressure on the upstream API instead of hammering it harder.",
-            estimated_impact="Touches the API client retry path and request timing behavior.",
+            fix_reasoning="Rate-limit failures are usually transient. Backoff reduces pressure on the upstream API instead of turning a brief quota issue into a self-inflicted outage.",
+            estimated_impact="Touches API client retry behavior and request pacing.",
         )
 
     if "schema" in root_cause:
         return FixProposal(
-            proposed_fix="Update the source-to-destination field mapping and add a schema compatibility check before load.",
+            proposed_fix="Update the source-to-destination field mapping and add a schema compatibility check before the load step.",
             fix_type="schema",
-            fix_reasoning="The pipeline is likely writing with stale assumptions about source fields.",
-            estimated_impact="Touches mapping config and pre-load validation for downstream tables.",
+            fix_reasoning="Schema drift usually means the pipeline is writing with stale assumptions about incoming fields.",
+            estimated_impact="Touches mapping logic and pre-load validation for downstream tables.",
         )
 
     if "timeout" in root_cause:
         return FixProposal(
-            proposed_fix="Increase upstream request timeout to a sane ceiling and add bounded retries around the slow dependency.",
+            proposed_fix="Increase the upstream timeout ceiling slightly and add bounded retries around the slow dependency.",
             fix_type="config",
-            fix_reasoning="Timeouts usually need a mix of tolerance and retry instead of immediate hard failure.",
-            estimated_impact="Touches service timeout config and failure handling around the dependency.",
+            fix_reasoning="Timeout failures usually need a mix of patience and bounded retry, not a blind hard stop on the first slow response.",
+            estimated_impact="Touches dependency timeout configuration and failure handling.",
         )
 
     return FixProposal(
-        proposed_fix="Do not auto-remediate. Capture more logs and send this incident for human review.",
+        proposed_fix="Do not auto-remediate. Capture more logs and route this incident for human review.",
         fix_type="config",
-        fix_reasoning="The diagnosis is too weak to safely mutate production behavior.",
-        estimated_impact="No system change; only incident handling flow is affected.",
+        fix_reasoning="The diagnosis is too weak to justify mutating production behavior automatically.",
+        estimated_impact="No production change; only the incident-handling path is affected.",
     )
-
-
-def _invoke_structured_fix(agent: BaseAgent, prompt: str, state: AgentState) -> FixProposal:
-    state["total_llm_calls"] = state.get("total_llm_calls", 0) + 1
-
-    if agent.llm is None:
-        return _fallback_fix(state)
-
-    structured_llm = agent.llm.with_structured_output(FixProposal)
-    return structured_llm.invoke(prompt)
 
 
 def fixer_agent(state: AgentState) -> AgentState:
@@ -73,9 +64,15 @@ def fixer_agent(state: AgentState) -> AgentState:
     agent.log_action("Proposing fix", state)
 
     if state.get("retry_counts", {}).get("Fixer", 0) >= 3:
-        agent.log_action("Max retries exceeded, escalating", state)
+        # Once the fixer starts looping, you usually learn nothing new from another
+        # LLM call except a bigger bill.
+        agent.log_action("Max fixer retries reached, escalating", state)
         state["proposed_fix"] = None
+        state["fix_type"] = None
+        state["fix_reasoning"] = "Fix generation retried too many times; escalation is safer."
+        state["estimated_impact"] = "No automated change applied."
         state["final_status"] = "escalated"
+        state["current_agent"] = "fixer"
         return state
 
     prompt = FIXER_PROMPT.format(
@@ -83,20 +80,20 @@ def fixer_agent(state: AgentState) -> AgentState:
         pipeline_config=state.get("pipeline_config", {}),
     )
 
-    try:
-        result = _invoke_structured_fix(agent, prompt, state)
-    except Exception as error:
-        agent.log_action(f"Structured fix generation failed: {error}", state)
-        result = _fallback_fix(state)
+    result = agent.invoke_structured(
+        FixProposal,
+        prompt,
+        state,
+        fallback_fn=lambda: _build_fix_fallback(state),
+    )
 
     state["proposed_fix"] = result.proposed_fix
     state["fix_type"] = result.fix_type
     state["fix_reasoning"] = result.fix_reasoning
     state["estimated_impact"] = result.estimated_impact
+    state["current_agent"] = "fixer"
 
     agent.log_action(f"Fix proposed: {result.fix_type}", state)
-
-    state["current_agent"] = "fixer"
     agent.increment_retry(state)
 
     return state

@@ -7,7 +7,7 @@ if __name__ == "__main__":
     graph = build_graph()
 
     initial_state = AgentState(
-        pipeline_id="demo_escalation_pipeline",
+        pipeline_id="data_ingestion_escalation",
         pipeline_config={...},
         retry_counts={},
         started_at=datetime.now(),
