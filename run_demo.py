@@ -8,7 +8,6 @@ load_dotenv()
 
 
 def run_demo():
-    """Run a sample pipeline debugging scenario."""
     print("="*60)
     print("AgentMesh - Automated Pipeline Debugging")
     print("="*60)
