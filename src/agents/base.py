@@ -7,8 +7,7 @@ from langchain_core.language_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
-# Chroma's telemetry noise is not useful during local runs and makes the repo
-# look less controlled than it is. Keep the signal, drop the spam.
+# Chroma telemetry is just noise in local runs and makes the repo look sloppier than it is.
 logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
 logging.getLogger("chromadb.telemetry.product").setLevel(logging.CRITICAL)
 logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
@@ -48,12 +47,11 @@ class BaseAgent:
         input_tokens = 0
         output_tokens = 0
 
-        # Try response_metadata first
         metadata = getattr(response, "response_metadata", {}) or {}
 
         usage = (
             metadata.get("usage")
-            or metadata.get("token_usage")   # ← THIS is your real case
+            or metadata.get("token_usage")
             or {}
         )
 
@@ -71,18 +69,18 @@ class BaseAgent:
             or 0
         )
 
-        # Fallback: usage_metadata (some wrappers only populate this)
-        if (input_tokens == 0 and output_tokens == 0):
+        # LangChain wrappers are inconsistent. Fall back to usage_metadata if either side is missing.
+        if input_tokens == 0 or output_tokens == 0:
             usage_meta = getattr(response, "usage_metadata", {}) or {}
 
-            input_tokens = (
+            input_tokens = input_tokens or (
                 usage_meta.get("input_tokens")
                 or usage_meta.get("prompt_tokens")
                 or usage_meta.get("input_token_count")
                 or 0
             )
 
-            output_tokens = (
+            output_tokens = output_tokens or (
                 usage_meta.get("output_tokens")
                 or usage_meta.get("completion_tokens")
                 or usage_meta.get("output_token_count")
@@ -97,17 +95,28 @@ class BaseAgent:
 
         input_tokens, output_tokens = self.extract_token_usage(response)
 
+        if input_tokens == 0 and output_tokens == 0:
+            logger.warning(
+                "run_id=%s agent=%s missing_token_usage_metadata",
+                state.get("run_id"),
+                self.name,
+            )
+            return
+
         model_name = getattr(self.llm, "model", "").lower()
         cost = 0.0
 
-        # rough pricing as of early 2025 — will drift.
+        # rough pricing as of early 2025. The order matters because these are substring checks.
         # TODO(joshitha): move pricing into config before this spreads any further.
         if "claude" in model_name:
             cost = (input_tokens / 1_000_000) * 3.00 + (output_tokens / 1_000_000) * 15.00
-        elif "gpt" in model_name:
-            # covers gpt-4, gpt-4o, gpt-4o-mini
+        elif "gpt-4o-mini" in model_name:
+            cost = (input_tokens / 1_000_000) * 0.15 + (output_tokens / 1_000_000) * 0.60
+        elif "gpt-4o" in model_name:
+            cost = (input_tokens / 1_000_000) * 2.50 + (output_tokens / 1_000_000) * 10.00
+        elif "gpt-4" in model_name:
             cost = (input_tokens / 1_000_000) * 10.00 + (output_tokens / 1_000_000) * 30.00
-        
+
         state["total_cost_usd"] = round(
             state.get("total_cost_usd", 0.0) + cost,
             6,
@@ -129,7 +138,7 @@ class BaseAgent:
         try:
             structured_llm = self.llm.with_structured_output(
                 model_cls,
-                include_raw=True,  # critical: gives us access to token usage
+                include_raw=True,
             )
 
             raw_output = structured_llm.invoke(
@@ -137,21 +146,19 @@ class BaseAgent:
                 config={"timeout": 30},
             )
 
-            # raw_output is now:
-            # { "parsed": <PydanticModel>, "raw": AIMessage }
-
             raw_message = raw_output.get("raw")
             parsed = raw_output.get("parsed")
-
-            if raw_message is not None:
-                self.add_cost_to_state(raw_message, state)
-            else:
-                # this should not happen, but if it does, make it visible
+            
+            usage_source = raw_message if raw_message is not None else raw_output
+            self.add_cost_to_state(usage_source, state)
+            
+            if parsed is None:
                 logger.warning(
-                    "run_id=%s agent=%s missing_raw_llm_response_for_cost_tracking",
+                    "run_id=%s agent=%s missing_parsed_structured_output_using_fallback",
                     state.get("run_id"),
                     self.name,
                 )
+                return fallback_fn()
             return parsed
 
         except Exception as error:

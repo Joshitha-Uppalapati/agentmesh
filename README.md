@@ -2,21 +2,22 @@
 AgentMesh is a reliability-first multi-agent system designed to diagnose and respond to pipeline failures.
 
 It is built using LangGraph with explicit node transitions and conditional routing.  
-The system emphasizes separation of detection and diagnosis, confidence-based escalation, and structured LLM outputs.
+The system emphasizes separation of detection and diagnosis, confidence-based routing, and structured LLM outputs.
 
 ---
 
 ## Architecture Overview
+The system is designed around the principle that most failures are workflow/system issues, not model errors.
 
 The system is composed of four primary agents:
 
 - **Monitor**: Detects pipeline anomalies based on health signals  
 - **Investigator**: Diagnoses root cause using structured LLM output  
 - **Fixer**: Proposes remediation actions based on diagnosis  
-- **Validator**: Evaluates proposed fixes before execution  
+- **Validator**: Evaluates proposed fixes (no real execution)  
 
 Routing is handled via explicit graph edges and conditional transitions.  
-Each agent operates on a shared `AgentState` object with defined ownership of fields to avoid state conflicts.
+Each agent operates on a shared `AgentState` object with clearly defined field ownership to avoid state conflicts.
 
 Key design choices:
 - Separation of detection vs diagnosis (Monitor vs Investigator)
@@ -27,7 +28,7 @@ Example failure scenario:
 - Monitor detects missing data in a downstream table
 - Investigator identifies upstream API rate limiting as root cause
 - Fixer proposes retry/backoff logic
-- Validator evaluates the change before approval
+- Validator evaluates proposed fixes before approval (no real execution)
 
 ---
 
@@ -69,7 +70,7 @@ This makes it possible to trace a single execution across agents and reconstruct
 
 LLM calls include:
 - Call count tracking
-- Cost estimation (approximate, model-dependent)
+- Cost tracking scaffold (depends on provider metadata availability; may be unavailable in structured mode)
 - Timeout enforcement (30s) to prevent graph hangs
 
 ---

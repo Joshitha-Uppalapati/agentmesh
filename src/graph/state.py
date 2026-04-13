@@ -39,8 +39,9 @@ class AgentState(TypedDict, total=False):
     validation_reasoning: Optional[str]
     test_results: Optional[Dict]
 
-    # Graph bookkeeping
+    # Graph bookkeeping.
     retry_counts: Dict[str, int]
+    current_agent: str
     final_status: Optional[Literal["resolved", "escalated", "failed"]]
 
     # Run metadata
@@ -49,7 +50,3 @@ class AgentState(TypedDict, total=False):
     total_llm_calls: int
     total_cost_usd: float
     
-    # Graph bookkeeping.
-    retry_counts: Dict[str, int]
-    current_agent: str
-    final_status: Optional[Literal["resolved", "escalated", "failed"]]

@@ -8,6 +8,7 @@ def test_graph_runs_without_error():
     graph = build_graph()
 
     initial_state = AgentState(
+        run_id="test-run",
         pipeline_id="test_pipeline",
         pipeline_config={"source": "test", "destination": "test"},
         retry_counts={},
