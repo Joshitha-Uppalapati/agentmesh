@@ -1,133 +1,117 @@
 # AgentMesh
-Most multi-agent systems look fine in demos but become unpredictable in production.
+AgentMesh is a reliability-first multi-agent system designed to diagnose and respond to pipeline failures.
 
-## Overview
-AgentMesh is a multi-agent system for diagnosing and fixing data pipeline failures. 
-Most agent systems look fine in demos but become unpredictable in real workflows. 
-This project focuses on making agent behavior explicit, inspectable, and safe.
+It is built using LangGraph with explicit node transitions and conditional routing.  
+The system emphasizes separation of detection and diagnosis, confidence-based escalation, and structured LLM outputs.
 
 ---
 
-## Architecture
-**Agent Flow:** 
-The Investigator agent uses a real LLM when API keys are available.
-Fixer and Validator are intentionally deterministic to keep control flow predictable during demos.
-1. **Monitor** → Detects failures and symptoms  
-2. **Investigator** → Diagnoses root cause using logs + RAG  
-3. **Fixer** → Proposes code/config/schema fixes  
-4. **Validator** → Tests fixes in sandbox before approval
+## Architecture Overview
 
-**Control Flow:**
-- Retry limits prevent infinite loops  
-- Escalation paths for human review  
-- State tracking for observability
+The system is composed of four primary agents:
 
-## Example: Graceful Escalation (run_demo_escalation.py)
+- **Monitor**: Detects pipeline anomalies based on health signals  
+- **Investigator**: Diagnoses root cause using structured LLM output  
+- **Fixer**: Proposes remediation actions based on diagnosis  
+- **Validator**: Evaluates proposed fixes before execution  
 
-When the system hits a failure it is not confident enough to fix, or hits retry limits, it halts and logs state for a human:
+Routing is handled via explicit graph edges and conditional transitions.  
+Each agent operates on a shared `AgentState` object with defined ownership of fields to avoid state conflicts.
 
-```text
-[Validator] Validating fix
-[Validator] Max validation retries reached, escalating
+Key design choices:
+- Separation of detection vs diagnosis (Monitor vs Investigator)
+- Per-agent retry tracking instead of global retries
+- Confidence-based routing to prevent unsafe automation
 
-🚨 ESCALATED TO HUMAN REVIEW
-Reason: Max retries exceeded | Confidence score too low for auto-remediation
+Example failure scenario:
+- Monitor detects missing data in a downstream table
+- Investigator identifies upstream API rate limiting as root cause
+- Fixer proposes retry/backoff logic
+- Validator evaluates the change before approval
 
-📊 Metrics:
-   Final Status: escalated
-   LLM Calls: 4
-   Cost: $0.0012
+---
+
+## The "Reliability" Refactor
+
+Early versions of this system relied on string parsing and keyword matching over LLM outputs.  
+This approach was brittle and produced incorrect state transitions under ambiguity.
+
+The system now uses structured outputs via `llm.with_structured_output(...)` with Pydantic models:
+
+- `InvestigationResult`
+- `FixProposal`
+- `ValidationResult`
+
+This change eliminates:
+- False positives from keyword matching
+- Inconsistent parsing across agents
+- Silent failure modes
+
+It also makes agent behavior explicit and testable.
+
+---
+
+## Observability
+
+Each execution is assigned a `run_id` (UUID) at graph entry.  
+This ID is propagated through all agent logs.
+
+Logging follows a consistent structured format:
+- No `print()` statements
+- All logs include `run_id`, `agent`, and `pipeline_id`
+
+Example log:
+```
+run_id=abc-123 agent=Investigator pipeline=orders_etl action=diagnosis_completed
 ```
 
+This makes it possible to trace a single execution across agents and reconstruct failures after the run.
+
+LLM calls include:
+- Call count tracking
+- Cost estimation (approximate, model-dependent)
+- Timeout enforcement (30s) to prevent graph hangs
+
 ---
 
-## Quick Start
-```bash
-# Install dependencies
+## Known Limitations
+
+- No retry/backoff for LLM calls (timeouts fail fast)
+- No distributed tracing (logs only)
+- Validator does not execute real sandboxed code
+- Vector store schema is implicit and not versioned
+
+---
+
+## Future Roadmap
+
+- Add retry + exponential backoff using Tenacity
+- Integrate LangSmith for trace-level observability
+- Replace Validator with real sandbox execution (Docker-based)
+- Introduce typed state schema validation at graph boundaries
+- Add async execution (`graph.ainvoke`) for concurrency
+
+---
+
+## Setup
+
+Requires Python 3.10+
+```
 pip install -r requirements.txt
+```
 
-# Add API key
-cp .env.example .env
-# Edit .env with your Anthropic/OpenAI key
+---
 
-# Run demo
+## Running the System
+
+Requires one of:
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+
+```
 python run_demo.py
-
-# Run basic smoke test
-python -m pytest
 ```
-
-**Note:**
-Demo scripts prioritize agent control flow and state transitions over full automation.
-Some third-party library telemetry warnings may appear during execution and do not affect behavior or results.
-
----
-
-## Project Structure
-```text
-agentmesh/
-├── src/
-│   ├── agents/
-│   ├── graph/
-│   ├── tools/
-│   ├── prompts/
-│   └── config/
-├── tests/
-├── data/
-└── run_demo.py
-```
-
----
-
-## Key Design Decisions
-**Why multi-agent?**
-- Separation of concerns: detection ≠ diagnosis ≠ remediation
-- Each agent has specific responsibilities and failure modes
-- Debuggability: Can pinpoint which agent made bad decisions
-
-**Why LangGraph?**
-- Explicit control flow (not just prompt chaining)
-- Built-in retry and routing logic
-- State management across agents
-
-**Why ChromaDB?**
-- Local development (no external dependencies)
-- Vector search for similar past failures
-- Lightweight and sufficient for an MVP
-- Similarity scores influence diagnostic confidence, which in turn affects escalation vs remediation decisions
-
-## Limitations
-- Mock LLM responses when no API key (for development)
-- Simple log parsing (regex-based)
-- No actual sandbox execution (validation is simulated)
-- Single-pipeline focus (no concurrent processing)
-- Validation logic is conservative by design; unsafe or low-confidence fixes are escalated to humans.
-
----
-
-## What Would Break at Scale
-**Bottleneck:** Investigator agent (I/O bound: logs + vector search)
-**What breaks first:** Cost (LLM calls per pipeline check)
-**Would measure:** Time-to-fix, false positive rate, fix acceptance rate
-
-## Trade-offs
-- **Used Chroma because:** Fast local setup, good enough for thousands of failures
-- **Wouldn't use Chroma if:** Multi-tenancy is required, ACID guarantees are needed, or a managed vector DB already exists
-This project optimizes for clarity and safety over full automation.
-
----
-
-## Future Improvements
-- Real sandbox validation (Docker containers)
-- Streaming LLM responses for faster UX
-- Memory across runs (learning from past fixes)
-- Multi-pipeline batch processing
-- Cost optimization via caching
-
-## Built With
-- LangGraph 0.2.45 - Agent orchestration
-- LangChain 0.3.15 - LLM integration
-- ChromaDB 0.5.23 - Vector storage
+The system will fail fast if no API key is provided.
 
 ---
 
